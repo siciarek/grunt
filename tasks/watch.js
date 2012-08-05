@@ -12,15 +12,11 @@
 module.exports = function(grunt) {
 
   // Nodejs libs.
-  var fs = require('fs');
+  var chokidar = require('chokidar');
 
   // ==========================================================================
   // TASKS
   // ==========================================================================
-
-  // Keep track of last modified times of files, in case files are reported to
-  // have changed incorrectly.
-  var mtimes = {};
 
   grunt.registerTask('watch', 'Run predefined tasks whenever watched files change.', function(target) {
     this.requiresConfig('watch');
@@ -50,10 +46,6 @@ module.exports = function(grunt) {
     var getFiles = grunt.file.expandFiles.bind(grunt.file, patterns);
     // This task's name + optional args, in string format.
     var nameArgs = this.nameArgs;
-    // An ID by which the setInterval can be canceled.
-    var intervalId;
-    // Files that are being watched.
-    var watchedFiles = {};
     // File changes to be logged.
     var changedFiles = {};
 
@@ -65,12 +57,15 @@ module.exports = function(grunt) {
       grunt.task.clearQueue({untilMarker: true}).run(nameArgs);
     };
 
+    var watchFiles = getFiles();
+
+    // init file watcher
+    var watcher = chokidar.watch(watchFiles, {persistent: true});
+
     // Cleanup when files have changed. This is debounced to handle situations
     // where editors save multiple files "simultaneously" and should wait until
     // all the files are saved.
     var done = grunt.util._.debounce(function() {
-      // Clear the files-added setInterval.
-      clearInterval(intervalId);
       // Ok!
       grunt.log.ok();
       var fileArray = Object.keys(changedFiles);
@@ -84,7 +79,7 @@ module.exports = function(grunt) {
         grunt.file.clearRequireCache(filepath);
       });
       // Unwatch all watched files.
-      Object.keys(watchedFiles).forEach(unWatchFile);
+      watcher.close();
       // For each specified target, test to see if any files matching that
       // target's file patterns were modified.
       targets.forEach(function(target) {
@@ -101,71 +96,39 @@ module.exports = function(grunt) {
       taskDone();
     }, 250);
 
-    // Handle file changes.
-    function fileChanged(status, filepath) {
-      // If file was deleted and then re-added, consider it changed.
-      if (changedFiles[filepath] === 'deleted' && status === 'added') {
-        status = 'changed';
-      }
-      // Keep track of changed status for later.
-      changedFiles[filepath] = status;
-      // Execute debounced done function.
+    // file deleted
+    watcher.on('unlink', function(filepath) {
+      changedFiles[filepath] = 'deleted';
       done();
-    }
+    });
 
-    // Watch a file.
-    function watchFile(filepath) {
-      if (!watchedFiles[filepath]) {
-        // Watch this file for changes. This probably won't scale to hundreds of
-        // files.. but I bet someone will try it!
-        watchedFiles[filepath] = fs.watch(filepath, function(event) {
-          var mtime;
-          // Has the file been deleted?
-          var deleted = !grunt.file.exists(filepath);
-          if (deleted) {
-            // If file was deleted, stop watching file.
-            unWatchFile(filepath);
-            // Remove from mtimes.
-            delete mtimes[filepath];
-          } else {
-            // Get last modified time of file.
-            mtime = +fs.statSync(filepath).mtime;
-            // If same as stored mtime, the file hasn't changed.
-            if (mtime === mtimes[filepath]) { return; }
-            // Otherwise it has, store mtime for later use.
-            mtimes[filepath] = mtime;
+    // file changed
+    watcher.on('change', function(filepath) {
+      changedFiles[filepath] = 'changed';
+      done();
+    });
+
+    // on watcher error
+    watcher.on('error', function(err) {
+      grunt.log.error(err.message);
+    });
+
+    // keep alive
+    setInterval(function() {
+
+      // poll if the files still exists on OSX
+      // until unlink on OSX is fixed: paulmillr/chokidar#9
+      if (process.platform === 'darwin') {
+        watchFiles.forEach(function(filepath) {
+          if (!grunt.file.exists(filepath)) {
+            watchFiles = grunt.util._.without(watchFiles, filepath);
+            watcher.emit('unlink', filepath);
           }
-          // Call "change" for this file, setting status appropriately (rename ->
-          // renamed, change -> changed).
-          fileChanged(deleted ? 'deleted' : event + 'd', filepath);
         });
       }
-    }
 
-    // Unwatch a file.
-    function unWatchFile(filepath) {
-      if (watchedFiles[filepath]) {
-        // Close watcher.
-        watchedFiles[filepath].close();
-        // Remove from watched files.
-        delete watchedFiles[filepath];
-      }
-    }
-
-    // Watch all currently existing files for changes.
-    getFiles().forEach(watchFile);
-
-    // Watch for files to be added.
-    intervalId = setInterval(function() {
-      // Files that have been added since last interval execution.
-      var added = grunt.util._.difference(getFiles(), Object.keys(watchedFiles));
-      added.forEach(function(filepath) {
-        // This file has been added.
-        fileChanged('added', filepath);
-        // Watch this file.
-        watchFile(filepath);
-      });
     }, 200);
+
   });
 
 };
