@@ -117,26 +117,28 @@ grunt.initConfig({
 
 In this example, running `grunt min:dist` (or `grunt min` because `min` is a [multi task](types_of_tasks.md)) will first strip any preexisting comments from the `src/project.js` file (because that's how UglifyJS works), then concatenate the result with a newly-generated banner comment, writing the output to `dist/built.js`.
 
-This generated banner will be the contents of the `meta.banner` underscore template string interpolated with the config object. In this case, those properties are the values imported from the `package.json` file (which are available via the `pkg` config property) plus today's date.
+This generated banner will be the contents of the `min.options.banner` underscore template string interpolated with the config object. In this case, those properties are the values imported from the `package.json` file (which are available via the `pkg` config property) plus today's date.
 
-_Note: you don't have to use an external JSON file. It's completely valid to create the `pkg` object inline in the config. That being said, if you already have a JSON file, you might as well reference it. See the [directives](helpers_directives.md) page for more information on the `<banner>` and `<json>` directives and their options._
+_Note: you don't have to use an external JSON file. It's completely valid to create the `pkg` object inline in the config. That being said, if you already have a JSON file, you might as well reference it. See the [directives](helpers_directives.md) page for more information on the `<json>` directive and it's options._
 
 ```javascript
 // Project configuration.
 grunt.initConfig({
   pkg: '<json:package.json>',
-  meta: {
-    banner: '/*! <%= pkg.name %> - v<%= pkg.version %> - ' +
-      '<%= grunt.template.today("yyyy-mm-dd") %> */'
-  },
   min: {
+    options: {
+      banner: '/*! <%= pkg.name %> - v<%= pkg.version %> - ' +
+        '<%= grunt.template.today("yyyy-mm-dd") %> */'
+    },
     dist: {
-      src: ['<banner>', 'dist/built.js'],
+      src: ['dist/built.js'],
       dest: 'dist/built.min.js'
     }
   }
 });
 ```
+
+_Changed in version 0.4: In Grunt v0.3 the banner was configured with `meta.banner` and prepended using the now deprecated `<banner>` directive. Take note when upgrading to v0.4 to configure the banner within the task's `options`._
 
 ### Specifying UglifyJS options
 
